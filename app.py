@@ -18,7 +18,7 @@ from google import genai
 # Constants & helpers
 # ──────────────────────────────────────────────
 
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 SYSTEM_PROMPT = textwrap.dedent("""\
     You are an expert SQL analyst. The user will give you a database schema and a
@@ -240,8 +240,17 @@ def render_sidebar():
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
 
-        # API key (check env var or streamlit secrets as fallback)
+        # API key (check env var, .env file, or streamlit secrets as default)
         default_api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not default_api_key and os.path.exists(".env"):
+            try:
+                with open(".env", "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("GEMINI_API_KEY="):
+                            default_api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
+            except Exception:
+                pass
         if not default_api_key:
             try:
                 default_api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -252,21 +261,23 @@ def render_sidebar():
             "Google Gemini API Key",
             value=default_api_key,
             type="password",
-            help="Get a free key at https://aistudio.google.com/apikey",
+            help="Default key is pre-loaded if configured. You can edit, delete, or replace it with your own key anytime.",
         )
+        if default_api_key:
+            st.caption("🔒 Default key loaded. Feel free to edit or replace it.")
 
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         st.markdown("### ⚡ AI Model")
         model_options = {
-            "⚡ Gemini 2.0 Flash (Fast & Recommended)": "gemini-2.0-flash",
-            "🚀 Gemini 2.0 Flash-Lite (Ultra Fast)": "gemini-2.0-flash-lite",
-            "🔄 Gemini 1.5 Flash (Legacy)": "gemini-1.5-flash",
+            "⚡ Gemini 2.5 Flash (Latest Free Tier - Recommended)": "gemini-2.5-flash",
+            "🚀 Gemini 2.5 Flash-Lite (Ultra Fast)": "gemini-2.5-flash-lite",
+            "🔄 Gemini 1.5 Flash (Fallback)": "gemini-1.5-flash",
         }
         selected_model_label = st.selectbox(
             "Model",
             options=list(model_options.keys()),
             index=0,
-            help="Gemini 2.0 Flash has instant responses with no thinking delay.",
+            help="Gemini 2.5 Flash is the latest free-tier model with reasoning overhead disabled for instant SQL output.",
         )
         selected_model = model_options[selected_model_label]
 
