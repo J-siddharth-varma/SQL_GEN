@@ -18,7 +18,7 @@ from google import genai
 # Constants & helpers
 # ──────────────────────────────────────────────
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 
 SYSTEM_PROMPT = textwrap.dedent("""\
     You are an expert SQL analyst. The user will give you a database schema and a
@@ -70,38 +70,20 @@ def _get_client(api_key: str) -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
-def generate_sql(api_key: str, schema: str, question: str, model: str = GEMINI_MODEL) -> str:
-    """Call Gemini to convert a natural-language question into SQL with minimal latency."""
+def generate_sql(api_key: str, schema: str, question: str) -> str:
+    """Call Gemini to convert a natural-language question into SQL."""
     client = _get_client(api_key)
 
     prompt = f"### Schema\n{schema}\n\n### Question\n{question}"
-
-    config_args = {
-        "system_instruction": SYSTEM_PROMPT,
-        "max_output_tokens": 512,       # SQL queries are concise
-        "temperature": 0.0,              # Deterministic output
-    }
-
-    # Attempt to disable thinking budget (turns off 10-25s reasoning overhead)
-    try:
-        from google.genai import types
-        config_args["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-        config = genai.types.GenerateContentConfig(**config_args)
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=config,
-        )
-    except Exception:
-        # Fallback if model doesn't support thinking_config
-        config_args.pop("thinking_config", None)
-        config = genai.types.GenerateContentConfig(**config_args)
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=config,
-        )
-
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=1024,       # SQL queries are short — no need to wait for more
+            temperature=0.0,              # Deterministic output for SQL
+        ),
+    )
     sql = response.text.strip()
 
     # Strip markdown fences if the model wraps them anyway
@@ -240,17 +222,8 @@ def render_sidebar():
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
 
-        # API key (check env var, .env file, or streamlit secrets as default)
+        # API key (check env var or streamlit secrets as fallback)
         default_api_key = os.environ.get("GEMINI_API_KEY", "")
-        if not default_api_key and os.path.exists(".env"):
-            try:
-                with open(".env", "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith("GEMINI_API_KEY="):
-                            default_api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-            except Exception:
-                pass
         if not default_api_key:
             try:
                 default_api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -261,25 +234,8 @@ def render_sidebar():
             "Google Gemini API Key",
             value=default_api_key,
             type="password",
-            help="Default key is pre-loaded if configured. You can edit, delete, or replace it with your own key anytime.",
+            help="Get a free key at https://aistudio.google.com/apikey",
         )
-        if default_api_key:
-            st.caption("🔒 Default key loaded. Feel free to edit or replace it.")
-
-        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-        st.markdown("### ⚡ AI Model")
-        model_options = {
-            "⚡ Gemini 2.5 Flash (Latest Free Tier - Recommended)": "gemini-2.5-flash",
-            "🚀 Gemini 2.5 Flash-Lite (Ultra Fast)": "gemini-2.5-flash-lite",
-            "🔄 Gemini 1.5 Flash (Fallback)": "gemini-1.5-flash",
-        }
-        selected_model_label = st.selectbox(
-            "Model",
-            options=list(model_options.keys()),
-            index=0,
-            help="Gemini 2.5 Flash is the latest free-tier model with reasoning overhead disabled for instant SQL output.",
-        )
-        selected_model = model_options[selected_model_label]
 
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         st.markdown("### 📂 Database Schema")
@@ -340,14 +296,14 @@ def render_sidebar():
             unsafe_allow_html=True,
         )
 
-    return api_key, selected_model
+    return api_key
 
 
 # ──────────────────────────────────────────────
 # Main content area
 # ──────────────────────────────────────────────
 
-def render_main(api_key: str, model: str = GEMINI_MODEL):
+def render_main(api_key: str):
     # Hero
     st.markdown(
         '<div class="hero">'
@@ -410,7 +366,7 @@ def render_main(api_key: str, model: str = GEMINI_MODEL):
 
         with st.spinner("Generating SQL …"):
             try:
-                sql = generate_sql(api_key, st.session_state.schema_text, question, model=model)
+                sql = generate_sql(api_key, st.session_state.schema_text, question)
                 st.session_state.generated_sql = sql
                 st.session_state.result_columns = []
                 st.session_state.result_rows = []
@@ -494,8 +450,8 @@ def main():
     )
     inject_css()
     init_state()
-    api_key, model = render_sidebar()
-    render_main(api_key, model=model)
+    api_key = render_sidebar()
+    render_main(api_key)
 
 
 if __name__ == "__main__":
