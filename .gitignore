@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+
+# Secrets and environment variables
+.env
+.env.*
+!.env.example
+*.key
+*.token
+.streamlit/secrets.toml
+
+# SQLite databases (prevent committing personal/uploaded DBs)
+*.db
+*.sqlite
+*.sqlite3
+!sample.db
+
+# Operating System & IDEs
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
