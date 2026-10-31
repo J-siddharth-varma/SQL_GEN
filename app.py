@@ -18,7 +18,7 @@ from google import genai
 # Constants & helpers
 # ──────────────────────────────────────────────
 
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = textwrap.dedent("""\
     You are an expert SQL analyst. The user will give you a database schema and a
@@ -70,20 +70,38 @@ def _get_client(api_key: str) -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
-def generate_sql(api_key: str, schema: str, question: str) -> str:
-    """Call Gemini to convert a natural-language question into SQL."""
+def generate_sql(api_key: str, schema: str, question: str, model: str = GEMINI_MODEL) -> str:
+    """Call Gemini to convert a natural-language question into SQL with minimal latency."""
     client = _get_client(api_key)
 
     prompt = f"### Schema\n{schema}\n\n### Question\n{question}"
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=genai.types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            max_output_tokens=1024,       # SQL queries are short — no need to wait for more
-            temperature=0.0,              # Deterministic output for SQL
-        ),
-    )
+
+    config_args = {
+        "system_instruction": SYSTEM_PROMPT,
+        "max_output_tokens": 512,       # SQL queries are concise
+        "temperature": 0.0,              # Deterministic output
+    }
+
+    # Attempt to disable thinking budget (turns off 10-25s reasoning overhead)
+    try:
+        from google.genai import types
+        config_args["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        config = genai.types.GenerateContentConfig(**config_args)
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=config,
+        )
+    except Exception:
+        # Fallback if model doesn't support thinking_config
+        config_args.pop("thinking_config", None)
+        config = genai.types.GenerateContentConfig(**config_args)
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=config,
+        )
+
     sql = response.text.strip()
 
     # Strip markdown fences if the model wraps them anyway
@@ -238,6 +256,21 @@ def render_sidebar():
         )
 
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+        st.markdown("### ⚡ AI Model")
+        model_options = {
+            "⚡ Gemini 2.0 Flash (Fast & Recommended)": "gemini-2.0-flash",
+            "🚀 Gemini 2.0 Flash-Lite (Ultra Fast)": "gemini-2.0-flash-lite",
+            "🔄 Gemini 1.5 Flash (Legacy)": "gemini-1.5-flash",
+        }
+        selected_model_label = st.selectbox(
+            "Model",
+            options=list(model_options.keys()),
+            index=0,
+            help="Gemini 2.0 Flash has instant responses with no thinking delay.",
+        )
+        selected_model = model_options[selected_model_label]
+
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         st.markdown("### 📂 Database Schema")
 
         schema_mode = st.radio(
@@ -296,14 +329,14 @@ def render_sidebar():
             unsafe_allow_html=True,
         )
 
-    return api_key
+    return api_key, selected_model
 
 
 # ──────────────────────────────────────────────
 # Main content area
 # ──────────────────────────────────────────────
 
-def render_main(api_key: str):
+def render_main(api_key: str, model: str = GEMINI_MODEL):
     # Hero
     st.markdown(
         '<div class="hero">'
@@ -366,7 +399,7 @@ def render_main(api_key: str):
 
         with st.spinner("Generating SQL …"):
             try:
-                sql = generate_sql(api_key, st.session_state.schema_text, question)
+                sql = generate_sql(api_key, st.session_state.schema_text, question, model=model)
                 st.session_state.generated_sql = sql
                 st.session_state.result_columns = []
                 st.session_state.result_rows = []
@@ -450,8 +483,8 @@ def main():
     )
     inject_css()
     init_state()
-    api_key = render_sidebar()
-    render_main(api_key)
+    api_key, model = render_sidebar()
+    render_main(api_key, model=model)
 
 
 if __name__ == "__main__":
